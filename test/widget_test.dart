@@ -1,30 +1,91 @@
-// This is a basic Flutter widget test.
-//
-// To perform an interaction with a widget in your test, use the WidgetTester
-// utility in the flutter_test package. For example, you can send tap and scroll
-// gestures. You can also use WidgetTester to find child widgets in the widget
-// tree, read text, and verify that the values of widget properties are correct.
-
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:e_commerce/main.dart';
 
 void main() {
-  testWidgets('Counter increments smoke test', (WidgetTester tester) async {
-    // Build our app and trigger a frame.
-    await tester.pumpWidget(const MyApp());
+  testWidgets('shows the FreshKart animated login screen', (tester) async {
+    await tester.pumpWidget(const FreshKartApp());
+    await tester.pumpAndSettle();
 
-    // Verify that our counter starts at 0.
-    expect(find.text('0'), findsOneWidget);
-    expect(find.text('1'), findsNothing);
+    expect(find.text('FreshKart'), findsOneWidget);
+    expect(
+      find.text('Fresh groceries, delivered to your doorstep.'),
+      findsOneWidget,
+    );
+    expect(
+      find.text('Login to get fresh products at your door.'),
+      findsOneWidget,
+    );
+    expect(find.text('+91'), findsOneWidget);
+    expect(find.textContaining('Terms of Service'), findsOneWidget);
+    expect(find.textContaining('Privacy Policy'), findsOneWidget);
+  });
 
-    // Tap the '+' icon and trigger a frame.
-    await tester.tap(find.byIcon(Icons.add));
+  testWidgets('validates the phone number before continuing', (tester) async {
+    await tester.pumpWidget(const FreshKartApp());
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const ValueKey('phoneNumberField')),
+      '12345',
+    );
+
+    await tester.tap(find.byKey(const ValueKey('continueButton')));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.text('Please enter a valid 10-digit mobile number.'),
+      findsOneWidget,
+    );
+    expect(
+      find.text(
+        'Authentication will be implemented in a later update. No login has taken place.',
+      ),
+      findsNothing,
+    );
+  });
+
+  testWidgets('keeps the login screen scrollable with the keyboard open', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    tester.view.viewInsets = const FakeViewPadding(bottom: 320);
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.view.resetViewInsets);
+
+    await tester.pumpWidget(const FreshKartApp());
+    await tester.pumpAndSettle();
+
+    expect(find.byType(SingleChildScrollView), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('shows a loading state then a clear authentication placeholder', (
+    tester,
+  ) async {
+    await tester.pumpWidget(const FreshKartApp());
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const ValueKey('phoneNumberField')),
+      '9876543210',
+    );
+
+    await tester.tap(find.byKey(const ValueKey('continueButton')));
     await tester.pump();
 
-    // Verify that our counter has incremented.
-    expect(find.text('0'), findsNothing);
-    expect(find.text('1'), findsOneWidget);
+    expect(find.text('Please wait...'), findsOneWidget);
+    expect(find.byType(CircularProgressIndicator), findsOneWidget);
+
+    await tester.pump(const Duration(milliseconds: 1200));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.text(
+        'Authentication will be implemented in a later update. No login has taken place.',
+      ),
+      findsOneWidget,
+    );
   });
 }

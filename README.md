@@ -1,17 +1,24 @@
-# e_commerce
+# FreshKart
 
-A new Flutter project.
+FreshKart is a Flutter grocery e-commerce app prototype. Day 1 is limited to
+the animated phone-number login interface; it does not connect to an
+authentication service or submit the phone number.
 
-## Getting Started
+## Run the app
 
-This project is a starting point for a Flutter application.
+From the project directory, run:
 
-A few resources to get you started if this is your first Flutter project:
+```sh
+flutter pub get
+flutter run
+```
 
-- [Learn Flutter](https://docs.flutter.dev/get-started/learn-flutter)
-- [Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Flutter learning resources](https://docs.flutter.dev/reference/learning-resources)
+## Try the login screen
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+- Watch the logo, welcome content, and form animate into view on launch.
+- Enter fewer than 10 digits and tap **Continue** to see inline validation.
+- Enter 10 digits and tap **Continue** to see the loading animation and the
+  placeholder notice. No login or OTP is performed.
+- Open the keyboard and scroll the page if needed to reach the button or terms.
+
+Run the widget tests with `flutter test`.
