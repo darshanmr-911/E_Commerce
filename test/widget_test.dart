@@ -4,9 +4,13 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:e_commerce/main.dart';
 
+Future<void> _pumpLoginApp(WidgetTester tester) async {
+  await tester.pumpWidget(const MaterialApp(home: LoginScreen()));
+}
+
 void main() {
   testWidgets('shows the FreshKart animated login screen', (tester) async {
-    await tester.pumpWidget(const FreshKartApp());
+    await _pumpLoginApp(tester);
     await tester.pumpAndSettle();
 
     expect(find.text('FreshKart'), findsOneWidget);
@@ -24,7 +28,7 @@ void main() {
   });
 
   testWidgets('validates the phone number before continuing', (tester) async {
-    await tester.pumpWidget(const FreshKartApp());
+    await _pumpLoginApp(tester);
     await tester.pumpAndSettle();
     await tester.enterText(
       find.byKey(const ValueKey('phoneNumberField')),
@@ -51,7 +55,7 @@ void main() {
     addTearDown(tester.view.resetDevicePixelRatio);
     addTearDown(tester.view.resetViewInsets);
 
-    await tester.pumpWidget(const FreshKartApp());
+    await _pumpLoginApp(tester);
     await tester.pumpAndSettle();
 
     expect(find.byType(SingleChildScrollView), findsOneWidget);
@@ -61,7 +65,7 @@ void main() {
   testWidgets('navigates to OTP after a valid number and shows placeholder', (
     tester,
   ) async {
-    await tester.pumpWidget(const FreshKartApp());
+    await _pumpLoginApp(tester);
     await tester.pumpAndSettle();
     await tester.enterText(
       find.byKey(const ValueKey('phoneNumberField')),
@@ -113,7 +117,7 @@ void main() {
   testWidgets('requires all six OTP digits before verification', (
     tester,
   ) async {
-    await tester.pumpWidget(const FreshKartApp());
+    await _pumpLoginApp(tester);
     await tester.pumpAndSettle();
     await tester.enterText(
       find.byKey(const ValueKey('phoneNumberField')),
@@ -132,7 +136,7 @@ void main() {
   testWidgets(
     'backspace on an empty OTP field returns focus to the previous digit',
     (tester) async {
-      await tester.pumpWidget(const FreshKartApp());
+      await _pumpLoginApp(tester);
       await tester.pumpAndSettle();
       await tester.enterText(
         find.byKey(const ValueKey('phoneNumberField')),
@@ -159,7 +163,7 @@ void main() {
   testWidgets('resend stays disabled until the 30-second countdown ends', (
     tester,
   ) async {
-    await tester.pumpWidget(const FreshKartApp());
+    await _pumpLoginApp(tester);
     await tester.pumpAndSettle();
     await tester.enterText(
       find.byKey(const ValueKey('phoneNumberField')),
@@ -182,7 +186,7 @@ void main() {
   });
 
   testWidgets('back button returns to the login screen', (tester) async {
-    await tester.pumpWidget(const FreshKartApp());
+    await _pumpLoginApp(tester);
     await tester.pumpAndSettle();
     await tester.enterText(
       find.byKey(const ValueKey('phoneNumberField')),

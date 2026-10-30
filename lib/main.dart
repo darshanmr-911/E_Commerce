@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import 'features/home/screens/home_screen.dart';
 import 'freshkart_colors.dart';
 import 'otp_verification_screen.dart';
 
@@ -25,7 +26,8 @@ class FreshKartApp extends StatelessWidget {
         scaffoldBackgroundColor: FreshKartColors.cream,
         fontFamily: 'Roboto',
       ),
-      home: const LoginScreen(),
+      home: const HomeScreen(),
+      routes: {'/login': (context) => const LoginScreen()},
     );
   }
 }

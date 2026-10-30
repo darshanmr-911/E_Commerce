@@ -1,8 +1,8 @@
 # FreshKart
 
-FreshKart is a Flutter grocery e-commerce app prototype. The phone-number
-login navigates to an interactive OTP screen, but neither SMS delivery nor
-authentication is connected.
+FreshKart is a Flutter grocery e-commerce app prototype with an interactive
+sample grocery home screen. The phone-number login and OTP screens remain
+available, but neither SMS delivery nor authentication is connected.
 
 ## Run the app
 
@@ -13,15 +13,14 @@ flutter pub get
 flutter run
 ```
 
-## Try the login screen
+## Try the home screen
 
-- Watch the logo, welcome content, and form animate into view on launch.
-- Enter fewer than 10 digits and tap **Continue** to see inline validation.
-- Enter 10 digits and tap **Continue** to open the OTP screen.
-- Enter six digits, then tap **Verify** to see its loading state and explicit
-  placeholder notice. No login or OTP verification is performed.
-- Wait 30 seconds to enable **Resend OTP**; resending is also a UI-only
-  placeholder and does not send an SMS.
-- Open the keyboard and scroll the page if needed to reach the button or terms.
+- Browse the rotating grocery promotions and eight category cards.
+- Search the local sample products, or use **Add** and the favourite controls.
+- Use the bottom navigation to view categories, the sample cart, orders, and
+  profile placeholders. Checkout and backend services are not connected.
+
+The existing login remains available at the `/login` route. Its OTP screen is
+still a UI-only placeholder and does not authenticate or send SMS.
 
 Run the widget tests with `flutter test`.
