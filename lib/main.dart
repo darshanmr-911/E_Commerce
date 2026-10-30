@@ -1,17 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import 'freshkart_colors.dart';
+import 'otp_verification_screen.dart';
+
 void main() {
   runApp(const FreshKartApp());
-}
-
-abstract final class FreshKartColors {
-  static const green = Color(0xFF287A45);
-  static const darkGreen = Color(0xFF174E31);
-  static const cream = Color(0xFFF7F8F1);
-  static const paleGreen = Color(0xFFE7F1E5);
-  static const text = Color(0xFF1E3025);
-  static const mutedText = Color(0xFF738078);
 }
 
 class FreshKartApp extends StatelessWidget {
@@ -46,13 +40,9 @@ class LoginScreen extends StatefulWidget {
 class _LoginScreenState extends State<LoginScreen>
     with SingleTickerProviderStateMixin {
   static const _entranceDuration = Duration(milliseconds: 1100);
-  static const _authenticationPlaceholder =
-      'Authentication will be implemented in a later update. No login has taken place.';
-
   final _formKey = GlobalKey<FormState>();
   final _phoneController = TextEditingController();
   late final AnimationController _entranceController;
-  bool _isLoading = false;
   bool _isButtonPressed = false;
 
   @override
@@ -71,27 +61,36 @@ class _LoginScreenState extends State<LoginScreen>
     super.dispose();
   }
 
-  Future<void> _continue() async {
-    if (_isLoading || !_formKey.currentState!.validate()) {
+  void _continue() {
+    if (!_formKey.currentState!.validate()) {
       return;
     }
 
     FocusScope.of(context).unfocus();
-    setState(() => _isLoading = true);
-    await Future<void>.delayed(const Duration(milliseconds: 1100));
-    if (!mounted) {
-      return;
-    }
-
-    setState(() => _isLoading = false);
-    ScaffoldMessenger.of(context)
-      ..hideCurrentSnackBar()
-      ..showSnackBar(
-        const SnackBar(
-          content: Text(_authenticationPlaceholder),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
+    Navigator.of(context).push(
+      PageRouteBuilder<void>(
+        transitionDuration: const Duration(milliseconds: 350),
+        reverseTransitionDuration: const Duration(milliseconds: 280),
+        pageBuilder: (context, animation, secondaryAnimation) =>
+            OtpVerificationScreen(phoneNumber: _phoneController.text),
+        transitionsBuilder: (context, animation, secondaryAnimation, child) {
+          final curved = CurvedAnimation(
+            parent: animation,
+            curve: Curves.easeOutCubic,
+          );
+          return FadeTransition(
+            opacity: curved,
+            child: SlideTransition(
+              position: Tween<Offset>(
+                begin: const Offset(0.08, 0),
+                end: Offset.zero,
+              ).animate(curved),
+              child: child,
+            ),
+          );
+        },
+      ),
+    );
   }
 
   Widget _entrance({
@@ -149,11 +148,10 @@ class _LoginScreenState extends State<LoginScreen>
                         child: _LoginForm(
                           formKey: _formKey,
                           phoneController: _phoneController,
-                          isLoading: _isLoading,
                           isButtonPressed: _isButtonPressed,
                           onPressed: _continue,
                           onButtonPressChanged: (pressed) {
-                            if (_isLoading || _isButtonPressed == pressed) {
+                            if (_isButtonPressed == pressed) {
                               return;
                             }
                             setState(() => _isButtonPressed = pressed);
@@ -346,7 +344,6 @@ class _LoginForm extends StatelessWidget {
   const _LoginForm({
     required this.formKey,
     required this.phoneController,
-    required this.isLoading,
     required this.isButtonPressed,
     required this.onPressed,
     required this.onButtonPressChanged,
@@ -354,7 +351,6 @@ class _LoginForm extends StatelessWidget {
 
   final GlobalKey<FormState> formKey;
   final TextEditingController phoneController;
-  final bool isLoading;
   final bool isButtonPressed;
   final VoidCallback onPressed;
   final ValueChanged<bool> onButtonPressChanged;
@@ -459,7 +455,7 @@ class _LoginForm extends StatelessWidget {
                   height: 56,
                   child: ElevatedButton(
                     key: const ValueKey('continueButton'),
-                    onPressed: isLoading ? null : onPressed,
+                    onPressed: onPressed,
                     style: ElevatedButton.styleFrom(
                       backgroundColor: FreshKartColors.green,
                       disabledBackgroundColor: FreshKartColors.green,
@@ -469,42 +465,13 @@ class _LoginForm extends StatelessWidget {
                         borderRadius: BorderRadius.circular(17),
                       ),
                     ),
-                    child: AnimatedSwitcher(
-                      duration: const Duration(milliseconds: 180),
-                      child: isLoading
-                          ? const Row(
-                              key: ValueKey('loading'),
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                SizedBox(
-                                  width: 20,
-                                  height: 20,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2.4,
-                                    valueColor: AlwaysStoppedAnimation<Color>(
-                                      Colors.white,
-                                    ),
-                                  ),
-                                ),
-                                SizedBox(width: 11),
-                                Text(
-                                  'Please wait...',
-                                  style: TextStyle(
-                                    fontSize: 16,
-                                    fontWeight: FontWeight.w700,
-                                  ),
-                                ),
-                              ],
-                            )
-                          : const Text(
-                              'Continue',
-                              key: ValueKey('continue'),
-                              style: TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.w700,
-                                letterSpacing: 0.1,
-                              ),
-                            ),
+                    child: const Text(
+                      'Continue',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: 0.1,
+                      ),
                     ),
                   ),
                 ),
