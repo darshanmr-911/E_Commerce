@@ -144,7 +144,9 @@ class _ProductCardState extends State<ProductCard>
                   ),
                   const SizedBox(height: 3),
                   Text(
-                    widget.product.priceLabel,
+                    widget.product.discountPercent > 0
+                        ? widget.product.discountedPriceLabel
+                        : widget.product.priceLabel,
                     style: const TextStyle(
                       color: FreshKartColors.mutedText,
                       fontSize: 12,

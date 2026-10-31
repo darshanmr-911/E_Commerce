@@ -1,14 +1,88 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
 
+import 'package:e_commerce/features/home/screens/home_screen.dart';
 import 'package:e_commerce/main.dart';
+import 'package:e_commerce/services/customer_api_client.dart';
 
-Future<void> _pumpLoginApp(WidgetTester tester) async {
-  await tester.pumpWidget(const MaterialApp(home: LoginScreen()));
+class _MemoryTokenStore implements CustomerTokenStore {
+  final Map<String, String> tokens = {};
+
+  @override
+  Future<String?> read(String key) async => tokens[key];
+
+  @override
+  Future<void> write(String key, String value) async => tokens[key] = value;
+
+  @override
+  Future<void> delete(String key) async => tokens.remove(key);
+}
+
+Future<_MemoryTokenStore> _pumpLoginApp(
+  WidgetTester tester, {
+  bool smsAccepted = true,
+  bool otpAccepted = false,
+}) async {
+  final tokenStore = _MemoryTokenStore();
+  final api = CustomerApiClient(
+    client: MockClient((request) async {
+      if (request.url.path.endsWith('/auth/send-otp/')) {
+        return smsAccepted
+            ? httpResponse({
+                'detail': 'Accepted',
+                'expires_in_seconds': 300,
+                'resend_after_seconds': 30,
+              }, 200)
+            : httpResponse({
+                'detail': 'The verification message could not be sent.',
+              }, 503);
+      }
+      if (request.url.path.endsWith('/auth/verify-otp/')) {
+        await Future<void>.delayed(const Duration(milliseconds: 900));
+        return otpAccepted
+            ? httpResponse({
+                'access': 'test-access-token',
+                'refresh': 'test-refresh-token',
+                'role': 'customer',
+              }, 200)
+            : httpResponse({
+                'code': 'otp_invalid',
+                'detail': 'The verification code is incorrect.',
+              }, 400);
+      }
+      return httpResponse({'detail': 'Unexpected test request.'}, 404);
+    }),
+    tokenStore: tokenStore,
+  );
+  await tester.pumpWidget(FreshKartApp(customerApi: api));
+  return tokenStore;
+}
+
+http.Response httpResponse(Map<String, Object?> body, int statusCode) {
+  return http.Response(jsonEncode(body), statusCode);
 }
 
 void main() {
+  testWidgets('FreshKart launches on login instead of the shopping screens', (
+    tester,
+  ) async {
+    await tester.pumpWidget(const FreshKartApp());
+    await tester.pumpAndSettle();
+
+    expect(
+      find.text('Login to get fresh products at your door.'),
+      findsOneWidget,
+    );
+    expect(find.text('Verify Your Number'), findsNothing);
+    expect(find.byKey(const ValueKey('homeSearchField')), findsNothing);
+    expect(find.byKey(const ValueKey('product-Tomatoes')), findsNothing);
+  });
+
   testWidgets('shows the FreshKart animated login screen', (tester) async {
     await _pumpLoginApp(tester);
     await tester.pumpAndSettle();
@@ -62,7 +136,7 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('navigates to OTP after a valid number and shows placeholder', (
+  testWidgets('navigates to OTP after a server-accepted send request', (
     tester,
   ) async {
     await _pumpLoginApp(tester);
@@ -106,12 +180,7 @@ void main() {
 
     await tester.pump(const Duration(milliseconds: 950));
     await tester.pumpAndSettle();
-    expect(
-      find.text(
-        'Temporary placeholder: OTP verification is not connected. No login has taken place.',
-      ),
-      findsOneWidget,
-    );
+    expect(find.text('The verification code is incorrect.'), findsOneWidget);
   });
 
   testWidgets('requires all six OTP digits before verification', (
@@ -201,6 +270,70 @@ void main() {
     expect(
       find.text('Login to get fresh products at your door.'),
       findsOneWidget,
+    );
+  });
+
+  testWidgets('SMS delivery failure keeps the customer on the login screen', (
+    tester,
+  ) async {
+    await _pumpLoginApp(tester, smsAccepted: false);
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const ValueKey('phoneNumberField')),
+      '9876543210',
+    );
+
+    await tester.tap(find.byKey(const ValueKey('continueButton')));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.text('The verification message could not be sent.'),
+      findsOneWidget,
+    );
+    expect(find.text('Verify Your Number'), findsNothing);
+    expect(
+      find.text('Login to get fresh products at your door.'),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('Home opens only after backend OTP verification succeeds', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final tokenStore = await _pumpLoginApp(tester, otpAccepted: true);
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const ValueKey('phoneNumberField')),
+      '9876543210',
+    );
+    await tester.tap(find.byKey(const ValueKey('continueButton')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Verify Your Number'), findsOneWidget);
+    for (var index = 0; index < 6; index++) {
+      await tester.enterText(
+        find.byKey(ValueKey('otpDigit$index')),
+        '${index + 1}',
+      );
+    }
+    await tester.tap(find.byKey(const ValueKey('verifyOtpButton')));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('homeSearchField')), findsOneWidget);
+    expect(find.byType(HomeScreen), findsOneWidget);
+    expect(
+      find.text('Login to get fresh products at your door.'),
+      findsNothing,
+    );
+    expect(tokenStore.tokens['freshkart_customer_access'], 'test-access-token');
+    expect(
+      tokenStore.tokens['freshkart_customer_refresh'],
+      'test-refresh-token',
     );
   });
 }

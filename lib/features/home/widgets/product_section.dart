@@ -60,7 +60,7 @@ class ProductSection extends StatelessWidget {
                 return ProductCard(
                   product: product,
                   quantity: cartQuantities[product.name] ?? 0,
-                  isFavorite: favorites.contains(product.name),
+                  isFavorite: favorites.contains(product.productId),
                   onAdd: () => onAdd(product),
                   onRemove: () => onRemove(product),
                   onFavoriteTap: () => onFavoriteTap(product),

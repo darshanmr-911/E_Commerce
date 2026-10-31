@@ -2,15 +2,19 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import 'features/home/screens/home_screen.dart';
+import 'features/owner/screens/owner_portal_screen.dart';
 import 'freshkart_colors.dart';
 import 'otp_verification_screen.dart';
+import 'services/customer_api_client.dart';
 
 void main() {
   runApp(const FreshKartApp());
 }
 
 class FreshKartApp extends StatelessWidget {
-  const FreshKartApp({super.key});
+  const FreshKartApp({this.customerApi, super.key});
+
+  final CustomerApiClient? customerApi;
 
   @override
   Widget build(BuildContext context) {
@@ -26,14 +30,20 @@ class FreshKartApp extends StatelessWidget {
         scaffoldBackgroundColor: FreshKartColors.cream,
         fontFamily: 'Roboto',
       ),
-      home: const HomeScreen(),
-      routes: {'/login': (context) => const LoginScreen()},
+      home: LoginScreen(customerApi: customerApi),
+      routes: {
+        '/home': (context) => const HomeScreen(),
+        '/login': (context) => const LoginScreen(),
+        '/owner': (context) => const OwnerPortalScreen(),
+      },
     );
   }
 }
 
 class LoginScreen extends StatefulWidget {
-  const LoginScreen({super.key});
+  const LoginScreen({this.customerApi, super.key});
+
+  final CustomerApiClient? customerApi;
 
   @override
   State<LoginScreen> createState() => _LoginScreenState();
@@ -45,11 +55,14 @@ class _LoginScreenState extends State<LoginScreen>
   final _formKey = GlobalKey<FormState>();
   final _phoneController = TextEditingController();
   late final AnimationController _entranceController;
+  late final CustomerApiClient _customerApi;
   bool _isButtonPressed = false;
+  bool _isSendingOtp = false;
 
   @override
   void initState() {
     super.initState();
+    _customerApi = widget.customerApi ?? CustomerApiClient();
     _entranceController = AnimationController(
       vsync: this,
       duration: _entranceDuration,
@@ -63,36 +76,57 @@ class _LoginScreenState extends State<LoginScreen>
     super.dispose();
   }
 
-  void _continue() {
+  Future<void> _continue() async {
     if (!_formKey.currentState!.validate()) {
       return;
     }
 
     FocusScope.of(context).unfocus();
-    Navigator.of(context).push(
-      PageRouteBuilder<void>(
-        transitionDuration: const Duration(milliseconds: 350),
-        reverseTransitionDuration: const Duration(milliseconds: 280),
-        pageBuilder: (context, animation, secondaryAnimation) =>
-            OtpVerificationScreen(phoneNumber: _phoneController.text),
-        transitionsBuilder: (context, animation, secondaryAnimation, child) {
-          final curved = CurvedAnimation(
-            parent: animation,
-            curve: Curves.easeOutCubic,
-          );
-          return FadeTransition(
-            opacity: curved,
-            child: SlideTransition(
-              position: Tween<Offset>(
-                begin: const Offset(0.08, 0),
-                end: Offset.zero,
-              ).animate(curved),
-              child: child,
-            ),
-          );
-        },
-      ),
-    );
+    setState(() => _isSendingOtp = true);
+    try {
+      final resendCooldown = await _customerApi.sendOtp(_phoneController.text);
+      if (!mounted) return;
+      Navigator.of(context).push(
+        PageRouteBuilder<void>(
+          transitionDuration: const Duration(milliseconds: 350),
+          reverseTransitionDuration: const Duration(milliseconds: 280),
+          pageBuilder: (context, animation, secondaryAnimation) =>
+              OtpVerificationScreen(
+                phoneNumber: _phoneController.text,
+                customerApi: _customerApi,
+                initialCooldownSeconds: resendCooldown,
+              ),
+          transitionsBuilder: (context, animation, secondaryAnimation, child) {
+            final curved = CurvedAnimation(
+              parent: animation,
+              curve: Curves.easeOutCubic,
+            );
+            return FadeTransition(
+              opacity: curved,
+              child: SlideTransition(
+                position: Tween<Offset>(
+                  begin: const Offset(0.08, 0),
+                  end: Offset.zero,
+                ).animate(curved),
+                child: child,
+              ),
+            );
+          },
+        ),
+      );
+    } on CustomerApiException catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          SnackBar(
+            content: Text(error.message),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+    } finally {
+      if (mounted) setState(() => _isSendingOtp = false);
+    }
   }
 
   Widget _entrance({
@@ -150,6 +184,7 @@ class _LoginScreenState extends State<LoginScreen>
                         child: _LoginForm(
                           formKey: _formKey,
                           phoneController: _phoneController,
+                          isLoading: _isSendingOtp,
                           isButtonPressed: _isButtonPressed,
                           onPressed: _continue,
                           onButtonPressChanged: (pressed) {
@@ -346,6 +381,7 @@ class _LoginForm extends StatelessWidget {
   const _LoginForm({
     required this.formKey,
     required this.phoneController,
+    required this.isLoading,
     required this.isButtonPressed,
     required this.onPressed,
     required this.onButtonPressChanged,
@@ -353,6 +389,7 @@ class _LoginForm extends StatelessWidget {
 
   final GlobalKey<FormState> formKey;
   final TextEditingController phoneController;
+  final bool isLoading;
   final bool isButtonPressed;
   final VoidCallback onPressed;
   final ValueChanged<bool> onButtonPressChanged;
@@ -457,7 +494,7 @@ class _LoginForm extends StatelessWidget {
                   height: 56,
                   child: ElevatedButton(
                     key: const ValueKey('continueButton'),
-                    onPressed: onPressed,
+                    onPressed: isLoading ? null : onPressed,
                     style: ElevatedButton.styleFrom(
                       backgroundColor: FreshKartColors.green,
                       disabledBackgroundColor: FreshKartColors.green,
@@ -467,14 +504,23 @@ class _LoginForm extends StatelessWidget {
                         borderRadius: BorderRadius.circular(17),
                       ),
                     ),
-                    child: const Text(
-                      'Continue',
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w700,
-                        letterSpacing: 0.1,
-                      ),
-                    ),
+                    child: isLoading
+                        ? const SizedBox(
+                            width: 21,
+                            height: 21,
+                            child: CircularProgressIndicator(
+                              color: Colors.white,
+                              strokeWidth: 2,
+                            ),
+                          )
+                        : const Text(
+                            'Continue',
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w700,
+                              letterSpacing: 0.1,
+                            ),
+                          ),
                   ),
                 ),
               ),

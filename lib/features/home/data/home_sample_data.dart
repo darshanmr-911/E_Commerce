@@ -56,6 +56,7 @@ const groceryCategories = [
 
 const popularProducts = [
   GroceryProduct(
+    id: 'tomatoes',
     name: 'Tomatoes',
     price: 40,
     unit: 'kg',
@@ -65,6 +66,7 @@ const popularProducts = [
     accentColor: Color(0xFFD75C49),
   ),
   GroceryProduct(
+    id: 'potatoes',
     name: 'Potatoes',
     price: 30,
     unit: 'kg',
@@ -74,6 +76,7 @@ const popularProducts = [
     accentColor: Color(0xFFA77B4C),
   ),
   GroceryProduct(
+    id: 'onions',
     name: 'Onions',
     price: 35,
     unit: 'kg',
@@ -83,6 +86,7 @@ const popularProducts = [
     accentColor: Color(0xFF9A6387),
   ),
   GroceryProduct(
+    id: 'bananas',
     name: 'Bananas',
     price: 60,
     unit: 'dozen',
@@ -92,6 +96,7 @@ const popularProducts = [
     accentColor: Color(0xFFBA922C),
   ),
   GroceryProduct(
+    id: 'milk',
     name: 'Milk',
     price: 30,
     unit: '500ml',
@@ -101,6 +106,7 @@ const popularProducts = [
     accentColor: Color(0xFF5C8BB8),
   ),
   GroceryProduct(
+    id: 'basmati-rice',
     name: 'Rice',
     price: 70,
     unit: 'kg',

@@ -1,9 +1,22 @@
 import 'package:flutter/material.dart';
 
 import '../../../freshkart_colors.dart';
+import '../../../models/address.dart';
 import '../../../models/category.dart';
 import '../../../models/product.dart';
+import '../../../services/address_service.dart';
+import '../../../services/backend_config.dart';
+import '../../../services/cart_service.dart';
+import '../../../services/customer_api_client.dart';
 import '../../../widgets/bottom_navigation.dart';
+import '../../address/screens/address_screen.dart';
+import '../../cart/screens/cart_screen.dart';
+import '../../categories/data/categories_sample_data.dart';
+import '../../categories/screens/categories_screen.dart';
+import '../../categories/screens/category_products_screen.dart';
+import '../../checkout/screens/checkout_screen.dart';
+import '../../customer/screens/customer_orders_screen.dart';
+import '../../owner/screens/owner_portal_screen.dart';
 import '../data/home_sample_data.dart';
 import '../widgets/category_section.dart';
 import '../widgets/home_header.dart';
@@ -22,71 +35,189 @@ class _HomeScreenState extends State<HomeScreen>
     with SingleTickerProviderStateMixin {
   final _searchController = TextEditingController();
   final _homeScrollController = ScrollController();
-  final Map<String, int> _cartQuantities = {};
+  final _cartService = CartService();
+  final _addressService = AddressService();
+  final _customerApi = CustomerApiClient();
   final Set<String> _favorites = {};
+  List<GroceryProduct> _catalogProducts = freshKartBackendEnabled
+      ? []
+      : popularProducts;
+  String? _catalogError;
+  bool _catalogLoading = freshKartBackendEnabled;
   late final AnimationController _entranceController;
   int _selectedDestination = 0;
   String _searchQuery = '';
-  String? _selectedCategory;
 
   @override
   void initState() {
     super.initState();
+    _cartService.addListener(_handleCartChanged);
     _entranceController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 700),
     )..forward();
+    if (freshKartBackendEnabled) _loadCatalog();
   }
 
   @override
   void dispose() {
     _searchController.dispose();
     _homeScrollController.dispose();
+    _cartService
+      ..removeListener(_handleCartChanged)
+      ..dispose();
+    _addressService.dispose();
     _entranceController.dispose();
     super.dispose();
   }
 
-  int get _cartItemCount =>
-      _cartQuantities.values.fold(0, (total, quantity) => total + quantity);
+  Map<String, int> get _cartQuantitiesByName => {
+    for (final item in _cartService.items) item.product.name: item.quantity,
+  };
+
+  void _handleCartChanged() {
+    if (mounted) setState(() {});
+  }
+
+  Future<void> _loadCatalog() async {
+    try {
+      final products = await _customerApi.fetchProducts();
+      if (mounted) {
+        setState(() {
+          _catalogProducts = products;
+          _catalogError = null;
+          _catalogLoading = false;
+        });
+      }
+    } on CustomerApiException catch (error) {
+      if (mounted) {
+        setState(() {
+          _catalogProducts = [];
+          _catalogError = error.message;
+          _catalogLoading = false;
+        });
+      }
+    }
+  }
 
   void _updateSearch(String value) {
     setState(() => _searchQuery = value.trim().toLowerCase());
   }
 
   void _selectCategory(GroceryCategory category) {
-    setState(() {
-      _selectedCategory = category.name;
-      _selectedDestination = 1;
-    });
+    final selectedCategory = categoryCatalog.firstWhere(
+      (item) => item.name == category.name,
+    );
+    setState(() => _selectedDestination = 1);
+    _openCategoryProducts(selectedCategory);
+  }
+
+  void _openCategoryProducts(GroceryCategory category) {
+    Navigator.of(context).push(
+      PageRouteBuilder<void>(
+        transitionDuration: const Duration(milliseconds: 320),
+        reverseTransitionDuration: const Duration(milliseconds: 260),
+        pageBuilder: (context, animation, secondaryAnimation) =>
+            CategoryProductsScreen(
+              categoryId: category.id,
+              categoryName: category.name,
+              cartService: _cartService,
+              favorites: _favorites,
+              onFavoriteTap: _toggleFavorite,
+              onBuyNow: _buyNow,
+              onDestinationSelected: (index) {
+                Navigator.of(context).pop();
+                if (index != 1 && mounted) {
+                  setState(() => _selectedDestination = index);
+                }
+              },
+            ),
+        transitionsBuilder: (context, animation, secondaryAnimation, child) {
+          final curved = CurvedAnimation(
+            parent: animation,
+            curve: Curves.easeOutCubic,
+          );
+          return FadeTransition(
+            opacity: curved,
+            child: SlideTransition(
+              position: Tween<Offset>(
+                begin: const Offset(0.04, 0),
+                end: Offset.zero,
+              ).animate(curved),
+              child: child,
+            ),
+          );
+        },
+      ),
+    );
   }
 
   void _addProduct(GroceryProduct product) {
-    setState(() {
-      _cartQuantities.update(
-        product.name,
-        (quantity) => quantity + 1,
-        ifAbsent: () => 1,
+    try {
+      final current = _cartService.quantityFor(product);
+      _cartService.add(
+        product,
+        quantity: current == 0 ? product.minimumOrderQuantity : 1,
       );
-    });
+    } on StateError catch (error) {
+      _showMessage(error.message);
+    }
   }
 
   void _removeProduct(GroceryProduct product) {
-    setState(() {
-      final quantity = _cartQuantities[product.name] ?? 0;
-      if (quantity <= 1) {
-        _cartQuantities.remove(product.name);
-      } else {
-        _cartQuantities[product.name] = quantity - 1;
-      }
-    });
+    final quantity = _cartService.quantityFor(product);
+    if (quantity > 0) _cartService.setQuantity(product, quantity - 1);
   }
 
   void _toggleFavorite(GroceryProduct product) {
     setState(() {
-      if (!_favorites.add(product.name)) {
-        _favorites.remove(product.name);
+      if (!_favorites.add(product.productId)) {
+        _favorites.remove(product.productId);
       }
     });
+  }
+
+  void _buyNow(GroceryProduct product, int quantity) {
+    try {
+      _cartService.add(product, quantity: quantity);
+    } on StateError catch (error) {
+      _showMessage(error.message);
+      return;
+    }
+    setState(() => _selectedDestination = 2);
+    Navigator.of(context).popUntil((route) => route.isFirst);
+  }
+
+  Future<DeliveryAddress?> _chooseAddress({
+    String continueLabel = 'Continue to Checkout',
+  }) {
+    return Navigator.of(context).push<DeliveryAddress>(
+      MaterialPageRoute(
+        builder: (context) => AddressScreen(
+          addressService: _addressService,
+          continueLabel: continueLabel,
+        ),
+      ),
+    );
+  }
+
+  Future<void> _startCheckout() async {
+    if (_cartService.items.isEmpty) return;
+    final address = _addressService.selectedAddress ?? await _chooseAddress();
+    if (!mounted || address == null) return;
+    _addressService.select(address.id);
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute(
+        builder: (context) => CheckoutScreen(
+          cartService: _cartService,
+          address: address,
+          customerApi: _customerApi,
+          useBackend: freshKartBackendEnabled,
+          onEditAddress: () =>
+              _chooseAddress(continueLabel: 'Use This Address'),
+        ),
+      ),
+    );
   }
 
   void _showMessage(String message) {
@@ -112,16 +243,12 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
   List<GroceryProduct> get _visibleProducts {
-    return popularProducts.where((product) {
+    return _catalogProducts.where((product) {
       final matchesSearch =
           _searchQuery.isEmpty ||
           product.name.toLowerCase().contains(_searchQuery) ||
           product.category.toLowerCase().contains(_searchQuery);
-      final matchesCategory =
-          _selectedDestination != 1 ||
-          _selectedCategory == null ||
-          product.category == _selectedCategory;
-      return matchesSearch && matchesCategory;
+      return matchesSearch;
     }).toList();
   }
 
@@ -186,6 +313,12 @@ class _HomeScreenState extends State<HomeScreen>
       case 2:
         return _buildCart(key: const ValueKey(2));
       case 3:
+        if (freshKartBackendEnabled) {
+          return CustomerOrdersScreen(
+            key: const ValueKey(3),
+            api: _customerApi,
+          );
+        }
         return _buildEmptyDestination(
           key: const ValueKey(3),
           title: 'Your orders',
@@ -196,15 +329,7 @@ class _HomeScreenState extends State<HomeScreen>
           onAction: () => setState(() => _selectedDestination = 0),
         );
       case 4:
-        return _buildEmptyDestination(
-          key: const ValueKey(4),
-          title: 'Your profile',
-          description:
-              'Profile settings are a placeholder in this sample shopping app.',
-          icon: Icons.person_rounded,
-          actionLabel: 'Back to home',
-          onAction: () => setState(() => _selectedDestination = 0),
-        );
+        return _buildProfile(key: const ValueKey(4));
       default:
         return _buildHome(key: const ValueKey(0));
     }
@@ -236,22 +361,43 @@ class _HomeScreenState extends State<HomeScreen>
               CategorySection(
                 categories: groceryCategories,
                 onCategoryTap: _selectCategory,
-                onSeeAll: () => setState(() {
-                  _selectedCategory = null;
-                  _selectedDestination = 1;
-                }),
+                onSeeAll: () => setState(() => _selectedDestination = 1),
               ),
               const SizedBox(height: 23),
             ],
-            ProductSection(
-              products: _visibleProducts,
-              cartQuantities: _cartQuantities,
-              favorites: _favorites,
-              onAdd: _addProduct,
-              onRemove: _removeProduct,
-              onFavoriteTap: _toggleFavorite,
-              title: hasSearch ? 'Search results' : 'Popular products',
-            ),
+            if (_catalogLoading)
+              const Padding(
+                padding: EdgeInsets.all(35),
+                child: Center(child: CircularProgressIndicator()),
+              )
+            else if (_catalogError case final error?)
+              Padding(
+                padding: const EdgeInsets.all(20),
+                child: Column(
+                  children: [
+                    const Icon(
+                      Icons.cloud_off_rounded,
+                      color: Colors.redAccent,
+                    ),
+                    const SizedBox(height: 8),
+                    Text(error, textAlign: TextAlign.center),
+                    TextButton(
+                      onPressed: _loadCatalog,
+                      child: const Text('Retry catalog'),
+                    ),
+                  ],
+                ),
+              )
+            else
+              ProductSection(
+                products: _visibleProducts,
+                cartQuantities: _cartQuantitiesByName,
+                favorites: _favorites,
+                onAdd: _addProduct,
+                onRemove: _removeProduct,
+                onFavoriteTap: _toggleFavorite,
+                title: hasSearch ? 'Search results' : 'Popular products',
+              ),
             const SizedBox(height: 22),
           ],
         ),
@@ -261,236 +407,73 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
   Widget _buildCategories({required Key key}) {
-    final selectedCategory = _selectedCategory;
-    final visibleProducts = selectedCategory == null
-        ? popularProducts
-        : popularProducts
-              .where((product) => product.category == selectedCategory)
-              .toList();
-    return SingleChildScrollView(
-      key: key,
-      padding: const EdgeInsets.only(top: 14, bottom: 25),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(20, 0, 20, 7),
-            child: Text(
-              selectedCategory == null ? 'Explore categories' : 'Categories',
-              style: const TextStyle(
-                color: FreshKartColors.text,
-                fontSize: 24,
-                fontWeight: FontWeight.w800,
-                letterSpacing: -0.7,
-              ),
-            ),
-          ),
-          const Padding(
-            padding: EdgeInsets.symmetric(horizontal: 20),
-            child: Text(
-              'Find something fresh for every part of your day.',
-              style: TextStyle(color: FreshKartColors.mutedText, fontSize: 13),
-            ),
-          ),
-          const SizedBox(height: 18),
-          CategorySection(
-            key: const ValueKey('allCategoriesSection'),
-            categories: groceryCategories,
-            showAll: true,
-            onSeeAll: () => setState(() {
-              _selectedCategory = null;
-            }),
-            onCategoryTap: (category) {
-              setState(() => _selectedCategory = category.name);
-            },
-          ),
-          const SizedBox(height: 22),
-          ProductSection(
-            products: visibleProducts,
-            cartQuantities: _cartQuantities,
-            favorites: _favorites,
-            onAdd: _addProduct,
-            onRemove: _removeProduct,
-            onFavoriteTap: _toggleFavorite,
-            title: selectedCategory == null
-                ? 'Popular products'
-                : '$selectedCategory picks',
-          ),
-        ],
-      ),
-    );
+    return CategoriesScreen(key: key, onCategoryTap: _openCategoryProducts);
   }
 
   Widget _buildCart({required Key key}) {
-    final items = popularProducts
-        .where((product) => (_cartQuantities[product.name] ?? 0) > 0)
-        .toList();
-    if (items.isEmpty) {
-      return _buildEmptyDestination(
-        key: key,
-        title: 'Your cart is waiting',
-        description:
-            'Add a few fresh favourites and they’ll be ready for you here.',
-        icon: Icons.shopping_bag_outlined,
-        actionLabel: 'Browse groceries',
-        onAction: () => setState(() => _selectedDestination = 0),
-      );
-    }
-
-    final total = items.fold<int>(
-      0,
-      (sum, product) =>
-          sum + product.price * (_cartQuantities[product.name] ?? 0),
-    );
-    return Column(
+    return CartScreen(
       key: key,
-      children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(20, 17, 20, 14),
-          child: Row(
-            children: [
-              const Expanded(
-                child: Text(
-                  'Your cart',
-                  style: TextStyle(
-                    color: FreshKartColors.text,
-                    fontSize: 24,
-                    fontWeight: FontWeight.w800,
-                    letterSpacing: -0.7,
-                  ),
+      cartService: _cartService,
+      onContinueShopping: () => setState(() => _selectedDestination = 0),
+      onProceedToCheckout: _startCheckout,
+    );
+  }
+
+  Widget _buildProfile({required Key key}) {
+    return Center(
+      key: key,
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 84,
+              height: 84,
+              decoration: const BoxDecoration(
+                color: FreshKartColors.paleGreen,
+                shape: BoxShape.circle,
+              ),
+              alignment: Alignment.center,
+              child: const Icon(
+                Icons.person_rounded,
+                size: 40,
+                color: FreshKartColors.green,
+              ),
+            ),
+            const SizedBox(height: 18),
+            const Text(
+              'Your profile',
+              style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800),
+            ),
+            const SizedBox(height: 8),
+            const Text(
+              'Manage your FreshKart account or open your separate shop-owner workspace.',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: FreshKartColors.mutedText, height: 1.45),
+            ),
+            const SizedBox(height: 18),
+            FilledButton.icon(
+              key: const ValueKey('openOwnerPortal'),
+              onPressed: () => Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) => const OwnerPortalScreen(),
                 ),
               ),
-              Text(
-                '$_cartItemCount ${_cartItemCount == 1 ? 'item' : 'items'}',
-                style: const TextStyle(
-                  color: FreshKartColors.mutedText,
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
-                ),
+              icon: const Icon(Icons.storefront_rounded),
+              label: const Text('Shop owner sign in'),
+              style: FilledButton.styleFrom(
+                backgroundColor: FreshKartColors.green,
               ),
-            ],
-          ),
+            ),
+            const SizedBox(height: 8),
+            TextButton(
+              onPressed: () => setState(() => _selectedDestination = 0),
+              child: const Text('Back to shopping'),
+            ),
+          ],
         ),
-        Expanded(
-          child: ListView.separated(
-            padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
-            itemCount: items.length,
-            separatorBuilder: (context, index) => const SizedBox(height: 10),
-            itemBuilder: (context, index) {
-              final product = items[index];
-              final quantity = _cartQuantities[product.name] ?? 0;
-              return Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(17),
-                  border: Border.all(color: const Color(0xFFE9EEE7)),
-                ),
-                child: Row(
-                  children: [
-                    Container(
-                      width: 54,
-                      height: 54,
-                      decoration: BoxDecoration(
-                        color: product.backgroundColor,
-                        borderRadius: BorderRadius.circular(14),
-                      ),
-                      alignment: Alignment.center,
-                      child: Text(
-                        product.illustration,
-                        style: const TextStyle(fontSize: 29),
-                      ),
-                    ),
-                    const SizedBox(width: 11),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            product.name,
-                            style: const TextStyle(
-                              color: FreshKartColors.text,
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            '${product.priceLabel}  ·  ₹${product.price * quantity}',
-                            style: const TextStyle(
-                              color: FreshKartColors.mutedText,
-                              fontSize: 12,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    IconButton(
-                      key: ValueKey('cart-remove-${product.name}'),
-                      onPressed: () => _removeProduct(product),
-                      icon: const Icon(Icons.remove_circle_outline_rounded),
-                      color: FreshKartColors.green,
-                    ),
-                    Text(
-                      '$quantity',
-                      style: const TextStyle(
-                        color: FreshKartColors.darkGreen,
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                    IconButton(
-                      key: ValueKey('cart-add-${product.name}'),
-                      onPressed: () => _addProduct(product),
-                      icon: const Icon(Icons.add_circle_outline_rounded),
-                      color: FreshKartColors.green,
-                    ),
-                  ],
-                ),
-              );
-            },
-          ),
-        ),
-        Container(
-          padding: const EdgeInsets.fromLTRB(20, 13, 20, 17),
-          decoration: const BoxDecoration(
-            color: Colors.white,
-            border: Border(top: BorderSide(color: Color(0xFFE9EEE7))),
-          ),
-          child: Row(
-            children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      'Sample total',
-                      style: TextStyle(
-                        color: FreshKartColors.mutedText,
-                        fontSize: 11,
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      '₹$total',
-                      style: const TextStyle(
-                        color: FreshKartColors.darkGreen,
-                        fontSize: 18,
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const Text(
-                'Checkout not available',
-                style: TextStyle(
-                  color: FreshKartColors.mutedText,
-                  fontSize: 11,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ],
+      ),
     );
   }
 

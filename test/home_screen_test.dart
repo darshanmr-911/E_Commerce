@@ -1,7 +1,18 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:e_commerce/widgets/bottom_navigation.dart';
 import 'package:e_commerce/main.dart';
+
+Future<void> _pumpHomeScreen(WidgetTester tester) async {
+  await tester.pumpWidget(const FreshKartApp());
+  await tester.pumpAndSettle();
+  tester
+      .state<NavigatorState>(find.byType(Navigator))
+      .pushReplacementNamed('/home');
+  await tester.pump(const Duration(milliseconds: 400));
+  await tester.pump(const Duration(milliseconds: 400));
+}
 
 void main() {
   testWidgets(
@@ -12,7 +23,7 @@ void main() {
       addTearDown(tester.view.resetPhysicalSize);
       addTearDown(tester.view.resetDevicePixelRatio);
 
-      await tester.pumpWidget(const FreshKartApp());
+      await _pumpHomeScreen(tester);
       await tester.pumpAndSettle();
 
       expect(find.text('FreshKart'), findsOneWidget);
@@ -25,6 +36,11 @@ void main() {
       expect(find.text('Popular products'), findsOneWidget);
       expect(find.byKey(const ValueKey('product-Tomatoes')), findsOneWidget);
       expect(find.text('₹40/kg'), findsOneWidget);
+      expect(
+        find.text('Login to get fresh products at your door.'),
+        findsNothing,
+      );
+      expect(find.text('Verify Your Number'), findsNothing);
       expect(find.byType(BottomNavigationBar), findsNothing);
       expect(tester.takeException(), isNull);
     },
@@ -38,7 +54,7 @@ void main() {
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
 
-    await tester.pumpWidget(const FreshKartApp());
+    await _pumpHomeScreen(tester);
     await tester.pumpAndSettle();
     await tester.enterText(
       find.byKey(const ValueKey('homeSearchField')),
@@ -59,25 +75,41 @@ void main() {
   });
 
   testWidgets(
-    'category selection filters products and bottom navigation works',
+    'category selection opens matching products and bottom navigation works',
     (tester) async {
       tester.view.physicalSize = const Size(390, 844);
       tester.view.devicePixelRatio = 1;
       addTearDown(tester.view.resetPhysicalSize);
       addTearDown(tester.view.resetDevicePixelRatio);
 
-      await tester.pumpWidget(const FreshKartApp());
+      await _pumpHomeScreen(tester);
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const ValueKey('seeAllCategoriesButton')));
       await tester.pumpAndSettle();
-      expect(find.text('Explore categories'), findsOneWidget);
+      expect(find.text('Shop by Category'), findsOneWidget);
+      expect(
+        tester
+            .widget<BottomNavigation>(find.byType(BottomNavigation))
+            .selectedIndex,
+        1,
+      );
 
       await tester.tap(find.byKey(const ValueKey('category-Fruits')));
       await tester.pumpAndSettle();
 
       expect(find.text('Fruits picks'), findsOneWidget);
-      expect(find.byKey(const ValueKey('product-Bananas')), findsOneWidget);
+      expect(find.byKey(const ValueKey('product-bananas')), findsOneWidget);
       expect(find.byKey(const ValueKey('product-Tomatoes')), findsNothing);
+      expect(
+        find.byKey(const ValueKey('category-products-fruits')),
+        findsOneWidget,
+      );
+      expect(
+        tester
+            .widget<BottomNavigation>(find.byType(BottomNavigation))
+            .selectedIndex,
+        1,
+      );
 
       await tester.tap(find.byKey(const ValueKey('navigation-Orders')));
       await tester.pumpAndSettle();
@@ -93,6 +125,53 @@ void main() {
     },
   );
 
+  testWidgets('category search filters, clears, and shows an empty state', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await _pumpHomeScreen(tester);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('navigation-Categories')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Shop by Category'), findsOneWidget);
+    expect(find.byKey(const ValueKey('category-Frozen Foods')), findsOneWidget);
+
+    await tester.enterText(
+      find.byKey(const ValueKey('categorySearchField')),
+      'fruit',
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('category-Fruits')), findsOneWidget);
+    expect(find.byKey(const ValueKey('category-Vegetables')), findsNothing);
+    expect(
+      find.byKey(const ValueKey('clearCategorySearchButton')),
+      findsOneWidget,
+    );
+    await tester.tap(find.byKey(const ValueKey('clearCategorySearchButton')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('category-Vegetables')), findsOneWidget);
+
+    await tester.enterText(
+      find.byKey(const ValueKey('categorySearchField')),
+      'no-match',
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('No categories found'), findsOneWidget);
+
+    await tester.tap(
+      find.byKey(const ValueKey('clearEmptyCategorySearchButton')),
+    );
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('category-Fruits')), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets(
     'products can be added, favourited and removed from the sample cart',
     (tester) async {
@@ -101,7 +180,7 @@ void main() {
       addTearDown(tester.view.resetPhysicalSize);
       addTearDown(tester.view.resetDevicePixelRatio);
 
-      await tester.pumpWidget(const FreshKartApp());
+      await _pumpHomeScreen(tester);
       await tester.pumpAndSettle();
       await tester.ensureVisible(find.byKey(const ValueKey('add-Tomatoes')));
       await tester.tap(find.byKey(const ValueKey('add-Tomatoes')));
@@ -114,11 +193,11 @@ void main() {
 
       await tester.tap(find.byKey(const ValueKey('navigation-Cart')));
       await tester.pumpAndSettle();
-      expect(find.text('Your cart'), findsOneWidget);
+      expect(find.text('My Shopping Cart'), findsOneWidget);
       expect(find.text('Tomatoes'), findsOneWidget);
-      expect(find.text('Checkout not available'), findsOneWidget);
+      expect(find.byKey(const ValueKey('proceedToCheckout')), findsOneWidget);
 
-      await tester.tap(find.byKey(const ValueKey('cart-remove-Tomatoes')));
+      await tester.tap(find.byKey(const ValueKey('remove-cart-tomatoes')));
       await tester.pumpAndSettle();
       expect(find.text('Your cart is waiting'), findsOneWidget);
     },
@@ -132,7 +211,7 @@ void main() {
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
 
-    await tester.pumpWidget(const FreshKartApp());
+    await _pumpHomeScreen(tester);
     await tester.pumpAndSettle();
     await tester.drag(
       find.byKey(const ValueKey('homeScroll')),
@@ -150,7 +229,7 @@ void main() {
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
 
-    await tester.pumpWidget(const FreshKartApp());
+    await _pumpHomeScreen(tester);
     await tester.pumpAndSettle();
     expect(
       find.byKey(const ValueKey('category-Personal Care')),
@@ -166,7 +245,7 @@ void main() {
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
 
-    await tester.pumpWidget(const FreshKartApp());
+    await _pumpHomeScreen(tester);
     await tester.pumpAndSettle();
     expect(find.text('Freshness at your doorstep!'), findsOneWidget);
 

@@ -4,26 +4,19 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import 'freshkart_colors.dart';
-
-enum OtpVerificationResult { invalidCode, unavailable }
-
-class OtpVerificationPlaceholder {
-  const OtpVerificationPlaceholder();
-
-  Future<OtpVerificationResult> verify(String code) async {
-    if (!RegExp(r'^\d{6}$').hasMatch(code)) {
-      return OtpVerificationResult.invalidCode;
-    }
-
-    await Future<void>.delayed(const Duration(milliseconds: 900));
-    return OtpVerificationResult.unavailable;
-  }
-}
+import 'services/customer_api_client.dart';
 
 class OtpVerificationScreen extends StatefulWidget {
-  const OtpVerificationScreen({required this.phoneNumber, super.key});
+  const OtpVerificationScreen({
+    required this.phoneNumber,
+    this.customerApi,
+    this.initialCooldownSeconds = 30,
+    super.key,
+  });
 
   final String phoneNumber;
+  final CustomerApiClient? customerApi;
+  final int initialCooldownSeconds;
 
   @override
   State<OtpVerificationScreen> createState() => _OtpVerificationScreenState();
@@ -33,15 +26,12 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen>
     with TickerProviderStateMixin {
   static const _digitCount = 6;
   static const _countdownDuration = 30;
-  static const _placeholderMessage =
-      'Temporary placeholder: OTP verification is not connected. No login has taken place.';
-
   final _controllers = List.generate(
     _digitCount,
     (_) => TextEditingController(),
   );
   final _focusNodes = List.generate(_digitCount, (_) => FocusNode());
-  final _verificationPlaceholder = const OtpVerificationPlaceholder();
+  late final CustomerApiClient _customerApi;
   late final AnimationController _entranceController;
   late final AnimationController _feedbackController;
   late final Animation<double> _shakeAnimation;
@@ -57,6 +47,7 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen>
   @override
   void initState() {
     super.initState();
+    _customerApi = widget.customerApi ?? CustomerApiClient();
     _entranceController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 850),
@@ -80,7 +71,7 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen>
     for (final controller in _controllers) {
       controller.addListener(_handleCodeChange);
     }
-    _startCountdown();
+    _startCountdown(widget.initialCooldownSeconds);
   }
 
   @override
@@ -120,9 +111,9 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen>
     });
   }
 
-  void _startCountdown() {
+  void _startCountdown(int seconds) {
     _countdownTimer?.cancel();
-    setState(() => _secondsRemaining = _countdownDuration);
+    setState(() => _secondsRemaining = seconds);
     _countdownTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
       if (!mounted) {
         timer.cancel();
@@ -167,36 +158,61 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen>
       _feedbackMessage = null;
     });
 
-    final result = await _verificationPlaceholder.verify(_code);
-    if (!mounted) {
+    try {
+      await _customerApi.verifyOtp(
+        phoneNumber: widget.phoneNumber,
+        code: _code,
+      );
+      if (mounted) {
+        Navigator.of(context)
+            .pushNamedAndRemoveUntil('/home', (route) => false);
+      }
+    } on CustomerApiException catch (error) {
+      if (!mounted) return;
+      final retryAfter = error.retryAfterSeconds;
+      setState(() {
+        _isLoading = false;
+        _feedbackMessage = error.message;
+        _feedbackIsError = true;
+        _showIncompleteError = true;
+      });
+      if (retryAfter != null && retryAfter > 0) {
+        _startCountdown(retryAfter);
+      }
+      _feedbackController.forward(from: 0);
+    }
+  }
+
+  Future<void> _resend() async {
+    if (_secondsRemaining != 0 || _isLoading) {
       return;
     }
     setState(() {
-      _isLoading = false;
-      _feedbackMessage = result == OtpVerificationResult.unavailable
-          ? _placeholderMessage
-          : 'Please enter all 6 digits.';
-      _feedbackIsError = result == OtpVerificationResult.invalidCode;
-      _showIncompleteError = result == OtpVerificationResult.invalidCode;
+      _isLoading = true;
+      _feedbackMessage = null;
     });
-    _feedbackController.forward(from: 0);
-  }
-
-  void _resend() {
-    if (_secondsRemaining != 0) {
-      return;
+    try {
+      final cooldown = await _customerApi.sendOtp(widget.phoneNumber);
+      if (!mounted) return;
+      setState(() {
+        _isLoading = false;
+        _feedbackMessage = 'The SMS provider accepted a new code request. Delivery may take a moment.';
+        _feedbackIsError = false;
+      });
+      _startCountdown(cooldown);
+    } on CustomerApiException catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _isLoading = false;
+        _feedbackMessage = error.message;
+        _feedbackIsError = true;
+      });
+      final retryAfter = error.retryAfterSeconds;
+      if (retryAfter != null && retryAfter > 0) {
+        _startCountdown(retryAfter);
+      }
+      _feedbackController.forward(from: 0);
     }
-    _startCountdown();
-    ScaffoldMessenger.of(context)
-      ..hideCurrentSnackBar()
-      ..showSnackBar(
-        const SnackBar(
-          content: Text(
-            'Resend is a UI-only placeholder. No SMS has been sent.',
-          ),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
   }
 
   Widget _entrance({required Widget child, required double start}) {
@@ -296,7 +312,7 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen>
                     const Spacer(),
                     const SizedBox(height: 20),
                     const Text(
-                      'OTP verification is a temporary placeholder. SMS and authentication are not connected.',
+                      'Enter the one-time code only in FreshKart. Never share it with anyone.',
                       textAlign: TextAlign.center,
                       style: TextStyle(
                         color: FreshKartColors.mutedText,
@@ -491,7 +507,7 @@ class _OtpHeading extends StatelessWidget {
         ),
         SizedBox(height: 10),
         Text(
-          "We've sent a verification code to your mobile number.",
+          'If delivery succeeds, enter the six-digit code here.',
           textAlign: TextAlign.center,
           style: TextStyle(
             color: FreshKartColors.mutedText,
