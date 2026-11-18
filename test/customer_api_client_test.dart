@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/testing.dart';
 import 'package:http/http.dart' as http;
@@ -7,6 +8,32 @@ import 'package:http/http.dart' as http;
 import 'package:e_commerce/services/customer_api_client.dart';
 
 void main() {
+  test('uses loopback as the default API host on desktop', () async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.macOS;
+    addTearDown(() => debugDefaultTargetPlatformOverride = null);
+
+    late Uri requestedUri;
+    final client = CustomerApiClient(
+      client: MockClient((request) async {
+        requestedUri = request.url;
+        return http.Response(
+          jsonEncode({
+            'code': 'sms_delivery_failed',
+            'detail': 'The verification message could not be sent.',
+          }),
+          503,
+        );
+      }),
+    );
+
+    await expectLater(
+      client.sendOtp('9876543210'),
+      throwsA(isA<CustomerApiException>()),
+    );
+    expect(requestedUri.host, '127.0.0.1');
+    expect(requestedUri.path, '/api/v1/auth/send-otp/');
+  });
+
   test(
     'maps backend category products into exact paise and stock limits',
     () async {
